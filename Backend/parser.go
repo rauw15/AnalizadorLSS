@@ -1,55 +1,50 @@
 package main
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 )
 
 func SyntaxAnalysis(code string) string {
-	var errores []string
+	errors := []string{}
+	lines := strings.Split(code, "\n")
 
-	if !strings.Contains(code, "function App()") {
-		errores = append(errores, "No se definió la función principal 'App()'")
+	// Validar balance de llaves y paréntesis
+	openBraces := strings.Count(code, "{")
+	closeBraces := strings.Count(code, "}")
+	if openBraces != closeBraces {
+		errors = append(errors, "Error de sintaxis: Llaves {} no balanceadas")
 	}
-
-	if strings.Contains(code, "return") && !strings.Contains(code, "{") {
-		errores = append(errores, "La instrucción 'return' debe estar dentro de un bloque '{}'")
-	}
-
-	// Verifica uso básico de paréntesis y llaves balanceadas
-	if !balanced(code, '(', ')') {
-		errores = append(errores, "Paréntesis desbalanceados")
-	}
-	if !balanced(code, '{', '}') {
-		errores = append(errores, "Llaves desbalanceadas")
+	openParens := strings.Count(code, "(")
+	closeParens := strings.Count(code, ")")
+	if openParens != closeParens {
+		errors = append(errors, "Error de sintaxis: Paréntesis () no balanceados")
 	}
 
-	if strings.Contains(code, "imprt") {
-		errores = append(errores, "Uso incorrecto de la palabra clave 'import'")
-	}
-	if strings.Contains(code, "functin") {
-		errores = append(errores, "Uso incorrecto de la palabra clave 'function'")
-	}
-	if strings.Contains(code, "defalt") {
-		errores = append(errores, "Uso incorrecto de la palabra clave 'default'")
-	}
-
-	if len(errores) == 0 {
-		return "Sintaxis válida"
-	}
-	return "Errores sintácticos:\n- " + strings.Join(errores, "\n- ")
-}
-
-func balanced(s string, open, close rune) bool {
-	count := 0
-	for _, r := range s {
-		if r == open {
-			count++
-		} else if r == close {
-			count--
-			if count < 0 {
-				return false
-			}
+	// Validar punto y coma al final de cada instrucción (excepto líneas con '{', '}', o vacías)
+	for i, line := range lines {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasSuffix(trim, "{") || strings.HasSuffix(trim, "}") {
+			continue
+		}
+		if !strings.HasSuffix(trim, ";") && !regexp.MustCompile(`^while\\s*\\(`).MatchString(trim) {
+			errors = append(errors, "Línea "+itoa(i+1)+": Falta punto y coma al final de la instrucción")
 		}
 	}
-	return count == 0
+
+	// Validar estructura do-while
+	doWhilePattern := regexp.MustCompile(`do\\s*{[\\s\\S]*}\\s*while\\s*\\([\\s\\S]*\\)\\s*;`)
+	if strings.Contains(code, "do") && !doWhilePattern.MatchString(code) {
+		errors = append(errors, "Error de sintaxis: Estructura do-while incorrecta")
+	}
+
+	if len(errors) > 0 {
+		return strings.Join(errors, "\n")
+	}
+	return "Sintaxis válida"
+}
+
+func itoa(i int) string {
+	return fmt.Sprintf("%d", i)
 }

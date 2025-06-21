@@ -24,9 +24,24 @@ var expectedKeywords = []string{
 	"useState", "useEffect", "export", "default", "React",
 }
 
+// Palabras reservadas para C-like
+var reservedWords = []string{
+	"int", "do", "while", "if", "else", "for", "return", "break", "continue", "switch", "case", "default", "void", "main",
+}
+
 // Verifica si un string es una palabra clave esperada
 func isExpectedKeyword(word string) bool {
 	for _, kw := range expectedKeywords {
+		if word == kw {
+			return true
+		}
+	}
+	return false
+}
+
+// Verifica si un string es una palabra reservada
+func isReservedWord(word string) bool {
+	for _, kw := range reservedWords {
 		if word == kw {
 			return true
 		}
@@ -75,4 +90,62 @@ func LexicalAnalysis(code string) ([]Token, []string) {
 	}
 
 	return tokens, errors
+}
+
+// Clasificación para la tabla
+func ClassifyToken(t Token) string {
+	switch t.Type {
+	case "keyword":
+		if isReservedWord(t.Value) {
+			return "PR"
+		}
+		return "Otro"
+	case "identifier":
+		if isReservedWord(t.Value) {
+			return "PR"
+		}
+		return "ID"
+	case "number":
+		return "Numeros"
+	case "symbol":
+		return "Simbolos"
+	default:
+		return "Error"
+	}
+}
+
+// Nueva función para el resumen léxico
+func LexicalSummary(code string) map[string]interface{} {
+	tokens, errors := LexicalAnalysis(code)
+
+	// Inicializar estructura para la tabla
+	table := []map[string]interface{}{}
+	counts := map[string]int{"PR": 0, "ID": 0, "Numeros": 0, "Simbolos": 0, "Error": 0}
+
+	for _, t := range tokens {
+		cat := ClassifyToken(t)
+		if cat == "Otro" {
+			continue
+		}
+		row := map[string]interface{}{
+			"value":    t.Value,
+			"PR":       cat == "PR",
+			"ID":       cat == "ID",
+			"Numeros":  cat == "Numeros",
+			"Simbolos": cat == "Simbolos",
+			"Error":    cat == "Error",
+		}
+		table = append(table, row)
+		if cat != "Error" {
+			counts[cat]++
+		}
+	}
+	// Contar errores léxicos
+	counts["Error"] += len(errors)
+
+	return map[string]interface{}{
+		"rows":           table,
+		"totals":         counts,
+		"lexical_errors": errors,
+	}
 }

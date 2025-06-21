@@ -10,7 +10,6 @@ type AnalysisRequest struct {
 	Code string `json:"code"`
 }
 
-
 type AnalysisResponse struct {
 	Tokens          []Token  `json:"lexical"`
 	LexicalErrors   []string `json:"lexical_errors"`
@@ -63,11 +62,15 @@ func analyzeHandler(w http.ResponseWriter, r *http.Request) {
 	syntax := SyntaxAnalysis(req.Code)
 	semantic := SemanticAnalysis(req.Code)
 
-	resp := AnalysisResponse{
-		Tokens:          tokens,
-		LexicalErrors:   lexErrors,
-		SyntacticResult: syntax,
-		SemanticResult:  semantic,
+	// Nuevo resumen léxico para la tabla
+	lexSummary := LexicalSummary(req.Code)
+
+	resp := map[string]interface{}{
+		"tokens":         tokens,
+		"lexical_errors": lexErrors,
+		"syntactic":      syntax,
+		"semantic":       semantic,
+		"lexical_table":  lexSummary, // tabla y totales
 	}
 
 	w.Header().Set("Content-Type", "application/json")
