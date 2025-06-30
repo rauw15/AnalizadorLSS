@@ -11,22 +11,24 @@ type Token struct {
 }
 
 var patterns = map[string]string{
-	"keyword":    `\b(import|from|function|return|const|let|var|if|else|useState|useEffect|export|default|React)\b`,
+	"keyword":    `\b(public|class|static|void|main|String|int|double|float|char|boolean|if|else|for|while|return|System|out|println|new)\b`,
 	"identifier": `\b[a-zA-Z_][a-zA-Z0-9_]*\b`,
 	"number":     `\b\d+(\.\d+)?\b`,
-	"string":     `"[^"\n]*"|'[^'\n]*'`,
-	"symbol":     `[{}\[\]();=.,<>:+\-*/]`,
+	"string":     `"([^"\\n\\r]*)"`,
+	"symbol":     `[{}\[\]();=.,<>:+\-*/!]`,
+	"dot":        `[.]`,
 }
 
 // Lista de palabras clave esperadas (para detectar errores como "imprt")
 var expectedKeywords = []string{
-	"import", "from", "function", "return", "const", "let", "var", "if", "else",
-	"useState", "useEffect", "export", "default", "React",
+	"public", "class", "static", "void", "main", "String", "int", "double", "float", "char", "boolean",
+	"if", "else", "for", "while", "return", "System", "out", "println", "new",
 }
 
-// Palabras reservadas para C-like
+// Palabras reservadas para Java
 var reservedWords = []string{
-	"int", "do", "while", "if", "else", "for", "return", "break", "continue", "switch", "case", "default", "void", "main",
+	"public", "class", "static", "void", "main", "String", "int", "double", "float", "char", "boolean",
+	"if", "else", "for", "while", "return", "System", "out", "println", "new",
 }
 
 // Verifica si un string es una palabra clave esperada
@@ -47,6 +49,11 @@ func isReservedWord(word string) bool {
 		}
 	}
 	return false
+}
+
+func removeStringsFromCode(code string) string {
+	// Elimina los literales de texto entre comillas dobles
+	return regexp.MustCompile(`"[^"]*"`).ReplaceAllString(code, "")
 }
 
 func LexicalAnalysis(code string) ([]Token, []string) {
@@ -73,8 +80,9 @@ func LexicalAnalysis(code string) ([]Token, []string) {
 		tokens = append(tokens, Token{Type: tokenType, Value: m})
 	}
 
-	// Revisión de errores léxicos más robusta
-	codeWords := regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`).FindAllString(code, -1)
+	// Revisión de errores léxicos más robusta (ignorando palabras dentro de strings)
+	codeNoStrings := removeStringsFromCode(code)
+	codeWords := regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`).FindAllString(codeNoStrings, -1)
 	for _, word := range codeWords {
 		isTokenized := false
 		for _, tok := range tokens {
@@ -85,7 +93,10 @@ func LexicalAnalysis(code string) ([]Token, []string) {
 		}
 		// Si no es una palabra clave válida, pero parece ser una... es un error
 		if !isExpectedKeyword(word) && !isTokenized {
-			errors = append(errors, "Posible error léxico: '"+word+"' no es una palabra clave válida")
+			// Solo marcar error si no es un número
+			if !regexp.MustCompile(`^\d+$`).MatchString(word) {
+				errors = append(errors, "Posible error léxico: '"+word+"' no es una palabra clave válida")
+			}
 		}
 	}
 
