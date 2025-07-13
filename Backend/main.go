@@ -10,13 +10,6 @@ type AnalysisRequest struct {
 	Code string `json:"code"`
 }
 
-type AnalysisResponse struct {
-	Tokens          []Token  `json:"lexical"`
-	LexicalErrors   []string `json:"lexical_errors"`
-	SyntacticResult string   `json:"syntactic"`
-	SemanticResult  string   `json:"semantic"`
-}
-
 func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
@@ -34,7 +27,6 @@ func main() {
 
 func analyzeHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("[INFO] Nueva solicitud recibida:", r.Method, r.URL.Path)
-
 	enableCORS(w)
 
 	if r.Method == "OPTIONS" {
@@ -58,19 +50,23 @@ func analyzeHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("[INFO] Código recibido:", req.Code)
 
-	tokens, lexErrors := LexicalAnalysis(req.Code)
-	syntax := SyntaxAnalysis(req.Code)
-	semantic := SemanticAnalysis(req.Code)
+	// Análisis léxico
+	lexico := ResumenLexico(req.Code)
 
-	// Nuevo resumen léxico para la tabla
-	lexSummary := LexicalSummary(req.Code)
+	// Análisis sintáctico
+	arbol, erroresSintacticos := AnalisisSintactico(req.Code)
+	sintactico := map[string]interface{}{
+		"arbol":   arbol,
+		"errores": erroresSintacticos,
+	}
+
+	// Análisis semántico
+	semantico := AnalisisSemantico(req.Code)
 
 	resp := map[string]interface{}{
-		"tokens":         tokens,
-		"lexical_errors": lexErrors,
-		"syntactic":      syntax,
-		"semantic":       semantic,
-		"lexical_table":  lexSummary, // tabla y totales
+		"lexico":     lexico,
+		"sintactico": sintactico,
+		"semantico":  semantico,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

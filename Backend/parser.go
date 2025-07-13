@@ -2,114 +2,280 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 )
 
-func SyntaxAnalysis(code string) string {
-	errors := []string{}
-	lines := strings.Split(code, "\n")
+type NodoSintactico struct {
+	Nodo  string                 `json:"nodo"`
+	Tipo  string                 `json:"tipo,omitempty"`
+	Valor string                 `json:"valor,omitempty"`
+	Hijos []NodoSintactico       `json:"hijos,omitempty"`
+	Extra map[string]interface{} `json:"extra,omitempty"`
+}
 
-	// 1. Validar declaración de clase
-	classPattern := regexp.MustCompile(`^\s*public\s+class\s+[A-Z][a-zA-Z0-9_]*\s*\{`)
-	classFound := false
-	for _, line := range lines {
-		if classPattern.MatchString(strings.TrimSpace(line)) {
-			classFound = true
-			break
+var palabrasReservadasBash = []string{
+	"if", "then", "else", "elif", "fi", "for", "while", "do", "done", "function", "case", "esac", "in", "select", "until", "time", "coproc", "break", "continue", "return", "exit", "echo", "read", "declare", "local", "export", "let", "test", "shift", "unset", "trap", "source", "exec", "set", "eval", "wait", "bg", "fg", "kill",
+}
+
+// Operadores de test de Bash
+var operadoresTestBash = []string{
+	"eq", "ne", "lt", "le", "gt", "ge",
+}
+
+func distanciaLevenshtein(a, b string) int {
+	la := len(a)
+	lb := len(b)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	dp := make([][]int, la+1)
+	for i := range dp {
+		dp[i] = make([]int, lb+1)
+	}
+	for i := 0; i <= la; i++ {
+		dp[i][0] = i
+	}
+	for j := 0; j <= lb; j++ {
+		dp[0][j] = j
+	}
+	for i := 1; i <= la; i++ {
+		for j := 1; j <= lb; j++ {
+			coste := 0
+			if a[i-1] != b[j-1] {
+				coste = 1
+			}
+			dp[i][j] = min(
+				dp[i-1][j]+1,
+				dp[i][j-1]+1,
+				dp[i-1][j-1]+coste,
+			)
 		}
 	}
-	if !classFound {
-		errors = append(errors, "No se encontró declaración de clase válida (public class NombreClase {...})")
-	}
+	return dp[la][lb]
+}
 
-	// 2. Validar método main
-	mainPattern := regexp.MustCompile(`^\s*public\s+static\s+void\s+main\s*\(String\s*\[\]\s*[a-zA-Z_][a-zA-Z0-9_]*\)\s*\{`)
-	mainFound := false
-	for _, line := range lines {
-		if mainPattern.MatchString(strings.TrimSpace(line)) {
-			mainFound = true
-			break
+func min(a, b, c int) int {
+	m := a
+	if b < m {
+		m = b
+	}
+	if c < m {
+		m = c
+	}
+	return m
+}
+
+func sugerirPalabraReservada(palabra string) string {
+	minDist := math.MaxInt32
+	mejor := ""
+	for _, pr := range palabrasReservadasBash {
+		d := distanciaLevenshtein(palabra, pr)
+		if d < minDist {
+			minDist = d
+			mejor = pr
 		}
 	}
-	if !mainFound {
-		errors = append(errors, "No se encontró método main válido (public static void main(String[] args) {...})")
+	if minDist <= 2 { // Solo sugerir si es muy parecido
+		return mejor
 	}
+	return ""
+}
 
-	// 3. Validar balance de llaves y paréntesis
-	openBraces := strings.Count(code, "{")
-	closeBraces := strings.Count(code, "}")
-	if openBraces != closeBraces {
-		errors = append(errors, "Llaves { } no balanceadas")
-	}
-	openParens := strings.Count(code, "(")
-	closeParens := strings.Count(code, ")")
-	if openParens != closeParens {
-		errors = append(errors, "Paréntesis ( ) no balanceados")
-	}
+// Elimina texto dentro de comillas simples y dobles
+func eliminarStrings(linea string) string {
+	// Elimina comillas dobles
+	linea = regexp.MustCompile(`"([^"\\]|\\.)*"`).ReplaceAllString(linea, "")
+	// Elimina comillas simples
+	linea = regexp.MustCompile(`'([^'\\]|\\.)*'`).ReplaceAllString(linea, "")
+	return linea
+}
 
-	// 4. Validar punto y coma al final de declaraciones y sentencias
-	stmtPattern := regexp.MustCompile(`^(int|String)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*(=.+)?;$|^System\.out\.println\s*\(.+\);$|^if\s*\(.+\)\s*\{?$|^\}$`)
-	for i, line := range lines {
-		trim := strings.TrimSpace(line)
-		if trim == "" {
+func AnalisisSintactico(codigo string) (NodoSintactico, []string) {
+	errores := []string{}
+	lineas := strings.Split(codigo, "\n")
+	arbol := NodoSintactico{Nodo: "script", Hijos: []NodoSintactico{}}
+
+	// Pilas para bloques
+	pilaIf := 0
+	pilaWhile := 0
+	pilaFor := 0
+	pilaLlaves := 0
+
+	for i, linea := range lineas {
+		l := strings.TrimSpace(linea)
+		if l == "" || strings.HasPrefix(l, "#") {
 			continue
 		}
-		if !stmtPattern.MatchString(trim) && !strings.HasSuffix(trim, "{") && !strings.HasSuffix(trim, "}") && !strings.HasPrefix(trim, "//") {
-			errors = append(errors, fmt.Sprintf("Línea %d: Sintaxis inválida o falta punto y coma", i+1))
-		}
-	}
 
-	// 5. Validar estructura de if
-	ifPattern := regexp.MustCompile(`^if\s*\(.+\)\s*\{?$`)
-	for i, line := range lines {
-		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "if") && !ifPattern.MatchString(trim) {
-			errors = append(errors, fmt.Sprintf("Línea %d: Estructura de if inválida", i+1))
+		// Comillas balanceadas
+		numComillasSimples := strings.Count(l, "'")
+		numComillasDobles := strings.Count(l, "\"")
+		if numComillasSimples%2 != 0 {
+			errores = append(errores, "Línea "+itoa(i+1)+": Comillas simples no balanceadas")
 		}
-	}
+		if numComillasDobles%2 != 0 {
+			errores = append(errores, "Línea "+itoa(i+1)+": Comillas dobles no balanceadas")
+		}
 
-	// 6. Validar llamadas a métodos
-	printlnPattern := regexp.MustCompile(`System\.out\.println\s*\(.+\);`)
-	equalsPattern := regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*\.equals\s*\(.+\)`)
-	for i, line := range lines {
-		trim := strings.TrimSpace(line)
-		if strings.Contains(trim, ".println") && !printlnPattern.MatchString(trim) {
-			errors = append(errors, fmt.Sprintf("Línea %d: Llamada a System.out.println inválida", i+1))
-		}
-		if strings.Contains(trim, ".equals") && !equalsPattern.MatchString(trim) {
-			errors = append(errors, fmt.Sprintf("Línea %d: Llamada a .equals inválida", i+1))
-		}
-	}
-
-	// 7. Validar comillas en strings
-	stringPattern := regexp.MustCompile(`"[^"]*"`)
-	for i, line := range lines {
-		if strings.Contains(line, "\"") && len(stringPattern.FindAllString(line, -1)) == 0 {
-			errors = append(errors, fmt.Sprintf("Línea %d: Error de comillas en string", i+1))
-		}
-	}
-
-	// 8. Detectar condiciones fuera de if o con palabra mal escrita
-	condPattern := regexp.MustCompile(`^\s*([a-zA-Z_][a-zA-Z0-9_]*)?\s*\([^\)]*\)\s*\{`)
-	for i, line := range lines {
-		if condPattern.MatchString(line) {
-			m := condPattern.FindStringSubmatch(line)
-			word := m[1]
-			if word == "" {
-				// Caso: solo (condición) { sin palabra antes
-				errors = append(errors, fmt.Sprintf("Línea %d: Condición sin 'if' detectada, falta palabra clave 'if'", i+1))
-			} else if word != "if" {
-				// Caso: palabra mal escrita antes de la condición
-				errors = append(errors, fmt.Sprintf("Línea %d: Palabra clave desconocida '%s' antes de condición, ¿quizá quisiste escribir 'if'?", i+1, word))
+		// Sugerencia de palabra reservada mal escrita (ignorando strings y operadores de test)
+		sinStrings := eliminarStrings(l)
+		palabras := regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`).FindAllString(sinStrings, -1)
+		for _, palabra := range palabras {
+			if contiene(palabrasReservadasBash, palabra) || contiene(operadoresTestBash, palabra) {
+				continue
+			}
+			// No sugerir para palabras que están dentro de $(( ... )) (expresiones aritméticas)
+			if strings.HasPrefix(palabra, "$((") && strings.HasSuffix(palabra, "))") {
+				continue
+			}
+			sugerencia := sugerirPalabraReservada(palabra)
+			if sugerencia != "" {
+				errores = append(errores, "Línea "+itoa(i+1)+": Palabra reservada desconocida '"+palabra+"'. ¿Quizás quisiste escribir '"+sugerencia+"'?")
 			}
 		}
+
+		// Asignación: VAR=valor
+		asig := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)=(.*)$`)
+		if asig.MatchString(l) {
+			m := asig.FindStringSubmatch(l)
+			arbol.Hijos = append(arbol.Hijos, NodoSintactico{
+				Nodo:  "asignacion",
+				Tipo:  "asignacion",
+				Valor: m[1],
+				Extra: map[string]interface{}{"valor": strings.TrimSpace(m[2])},
+			})
+			continue
+		}
+
+		// If
+		ifif := regexp.MustCompile(`^if\s+(.+)\s*;?\s*then$`)
+		if ifif.MatchString(l) {
+			m := ifif.FindStringSubmatch(l)
+			arbol.Hijos = append(arbol.Hijos, NodoSintactico{
+				Nodo:  "if",
+				Tipo:  "condicional",
+				Valor: m[1],
+			})
+			pilaIf++
+			continue
+		}
+		if l == "fi" {
+			if pilaIf > 0 {
+				pilaIf--
+			} else {
+				errores = append(errores, "Línea "+itoa(i+1)+": 'fi' sin 'if' correspondiente")
+			}
+			arbol.Hijos = append(arbol.Hijos, NodoSintactico{Nodo: "fin_if"})
+			continue
+		}
+
+		// While
+		wh := regexp.MustCompile(`^while\s+(.+)\s*;?\s*do$`)
+		if wh.MatchString(l) {
+			m := wh.FindStringSubmatch(l)
+			arbol.Hijos = append(arbol.Hijos, NodoSintactico{
+				Nodo:  "while",
+				Tipo:  "bucle",
+				Valor: m[1],
+			})
+			pilaWhile++
+			continue
+		}
+		if l == "done" {
+			if pilaWhile > 0 {
+				pilaWhile--
+			} else if pilaFor > 0 {
+				pilaFor--
+			} else {
+				errores = append(errores, "Línea "+itoa(i+1)+": 'done' sin 'while' o 'for' correspondiente")
+			}
+			arbol.Hijos = append(arbol.Hijos, NodoSintactico{Nodo: "fin_while"})
+			continue
+		}
+
+		// For (permitir guion bajo en nombre de variable)
+		forr := regexp.MustCompile(`^for\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+in\s+(.+)\s*;?\s*do$`)
+		if forr.MatchString(l) {
+			m := forr.FindStringSubmatch(l)
+			arbol.Hijos = append(arbol.Hijos, NodoSintactico{
+				Nodo:  "for",
+				Tipo:  "bucle",
+				Valor: m[1],
+				Extra: map[string]interface{}{"en": m[2]},
+			})
+			pilaFor++
+			continue
+		}
+
+		// Función (permitir guion bajo en nombre)
+		fun := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\)\s*\{$`)
+		if fun.MatchString(l) {
+			m := fun.FindStringSubmatch(l)
+			arbol.Hijos = append(arbol.Hijos, NodoSintactico{
+				Nodo:  "funcion",
+				Tipo:  "definicion_funcion",
+				Valor: m[1],
+			})
+			pilaLlaves++
+			continue
+		}
+		if l == "{" {
+			pilaLlaves++
+			continue
+		}
+		if l == "}" {
+			if pilaLlaves > 0 {
+				pilaLlaves--
+			} else {
+				errores = append(errores, "Línea "+itoa(i+1)+": '}' sin '{' correspondiente")
+			}
+			arbol.Hijos = append(arbol.Hijos, NodoSintactico{Nodo: "fin_bloque"})
+			continue
+		}
+
+		// Comando
+		cmd := regexp.MustCompile(`^[a-zA-Z0-9_\-\.\$\{\}\[\]=/\":' ]+$`)
+		if cmd.MatchString(l) {
+			arbol.Hijos = append(arbol.Hijos, NodoSintactico{
+				Nodo:  "comando",
+				Tipo:  "comando",
+				Valor: l,
+			})
+			continue
+		}
+
+		errores = append(errores, "Línea "+itoa(i+1)+": Sintaxis no reconocida: '"+l+"'")
 	}
 
-	if len(errors) > 0 {
-		return strings.Join(errors, "\n")
+	// Al final, verificar bloques abiertos
+	if pilaIf > 0 {
+		errores = append(errores, "Bloque 'if' sin 'fi' de cierre")
 	}
-	return "Sintaxis válida"
+	if pilaWhile > 0 {
+		errores = append(errores, "Bloque 'while' sin 'done' de cierre")
+	}
+	if pilaFor > 0 {
+		errores = append(errores, "Bloque 'for' sin 'done' de cierre")
+	}
+	if pilaLlaves > 0 {
+		errores = append(errores, "Bloque '{' sin '}' de cierre")
+	}
+
+	return arbol, errores
+}
+
+func contiene(arr []string, s string) bool {
+	for _, v := range arr {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func itoa(i int) string {

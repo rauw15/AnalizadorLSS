@@ -6,157 +6,131 @@ import (
 )
 
 type Token struct {
-	Type  string `json:"type"`
-	Value string `json:"value"`
+	Tipo  string `json:"tipo"`
+	Valor string `json:"valor"`
 }
 
-var patterns = map[string]string{
-	"keyword":    `\b(public|class|static|void|main|String|int|double|float|char|boolean|if|else|for|while|return|System|out|println|new)\b`,
-	"identifier": `\b[a-zA-Z_][a-zA-Z0-9_]*\b`,
-	"number":     `\b\d+(\.\d+)?\b`,
-	"string":     `"([^"\\n\\r]*)"`,
-	"symbol":     `[{}\[\]();=.,<>:+\-*/!]`,
-	"dot":        `[.]`,
+var patrones = map[string]string{
+	"palabra_clave": `\b(if|then|else|elif|fi|for|while|do|done|function|case|esac|in|select|until|time|coproc|break|continue|return|exit|echo|read|declare|local|export|let|test|shift|unset|trap|source|exec|set|eval|wait|bg|fg|kill)\b`,
+	"identificador": `\$?[a-zA-Z_][a-zA-Z0-9_]*|\${[a-zA-Z_][a-zA-Z0-9_]*}`,
+	"numero":        `\b\d+(\.\d+)?\b`,
+	"cadena":        `'[^'\\n\\r]*'|"([^"\\n\\r]*)"`,
+	"operador":      `==|!=|=|\+=|-=|\*=|/=|%=|\|\||&&|!|\||;|&|\+|-|\*|/|%|<|>|<=|>=|-eq|-ne|-lt|-gt|-le|-ge`,
+	"simbolo":       `[{}\[\]()<>]`,
+	"comentario":    `#[^\n]*`,
 }
 
-// Lista de palabras clave esperadas (para detectar errores como "imprt")
-var expectedKeywords = []string{
-	"public", "class", "static", "void", "main", "String", "int", "double", "float", "char", "boolean",
-	"if", "else", "for", "while", "return", "System", "out", "println", "new",
+// Palabras clave de Bash
+var palabrasClave = []string{
+	"if", "then", "else", "elif", "fi", "for", "while", "do", "done", "function", "case", "esac", "in", "select", "until", "time", "coproc", "break", "continue", "return", "exit", "echo", "read", "declare", "local", "export", "let", "test", "shift", "unset", "trap", "source", "exec", "set", "eval", "wait", "bg", "fg", "kill",
 }
 
-// Palabras reservadas para Java
-var reservedWords = []string{
-	"public", "class", "static", "void", "main", "String", "int", "double", "float", "char", "boolean",
-	"if", "else", "for", "while", "return", "System", "out", "println", "new",
-}
-
-// Verifica si un string es una palabra clave esperada
-func isExpectedKeyword(word string) bool {
-	for _, kw := range expectedKeywords {
-		if word == kw {
+func esPalabraClave(palabra string) bool {
+	for _, kw := range palabrasClave {
+		if palabra == kw {
 			return true
 		}
 	}
 	return false
 }
 
-// Verifica si un string es una palabra reservada
-func isReservedWord(word string) bool {
-	for _, kw := range reservedWords {
-		if word == kw {
-			return true
-		}
-	}
-	return false
+func eliminarCadenasDelCodigo(codigo string) string {
+	// Elimina los literales de texto entre comillas simples y dobles
+	codigo = regexp.MustCompile(`'[^']*'`).ReplaceAllString(codigo, "")
+	codigo = regexp.MustCompile(`"[^"]*"`).ReplaceAllString(codigo, "")
+	return codigo
 }
 
-func removeStringsFromCode(code string) string {
-	// Elimina los literales de texto entre comillas dobles
-	return regexp.MustCompile(`"[^"]*"`).ReplaceAllString(code, "")
-}
-
-func LexicalAnalysis(code string) ([]Token, []string) {
+func AnalisisLexico(codigo string) ([]Token, []string) {
 	var tokens []Token
-	var errors []string
+	var errores []string
 
-	masterPattern := ""
-	for _, p := range patterns {
-		masterPattern += "(" + p + ")|"
+	patronMaestro := ""
+	for _, p := range patrones {
+		patronMaestro += "(" + p + ")|"
 	}
-	masterPattern = strings.TrimSuffix(masterPattern, "|")
+	patronMaestro = strings.TrimSuffix(patronMaestro, "|")
 
-	re := regexp.MustCompile(masterPattern)
-	matches := re.FindAllString(code, -1)
+	re := regexp.MustCompile(patronMaestro)
+	coincidencias := re.FindAllString(codigo, -1)
 
-	for _, m := range matches {
-		tokenType := "unknown"
-		for tType, pat := range patterns {
+	for _, m := range coincidencias {
+		tipoToken := "desconocido"
+		for tTipo, pat := range patrones {
 			if matched, _ := regexp.MatchString("^"+pat+"$", m); matched {
-				tokenType = tType
+				tipoToken = tTipo
 				break
 			}
 		}
-		tokens = append(tokens, Token{Type: tokenType, Value: m})
+		tokens = append(tokens, Token{Tipo: tipoToken, Valor: m})
 	}
 
-	// Revisión de errores léxicos más robusta (ignorando palabras dentro de strings)
-	codeNoStrings := removeStringsFromCode(code)
-	codeWords := regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`).FindAllString(codeNoStrings, -1)
-	for _, word := range codeWords {
-		isTokenized := false
+	// Revisión de errores léxicos (ignorando palabras dentro de cadenas)
+	codigoSinCadenas := eliminarCadenasDelCodigo(codigo)
+	palabras := regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`).FindAllString(codigoSinCadenas, -1)
+	for _, palabra := range palabras {
+		esTokenizado := false
 		for _, tok := range tokens {
-			if tok.Value == word {
-				isTokenized = true
+			if tok.Valor == palabra {
+				esTokenizado = true
 				break
 			}
 		}
-		// Si no es una palabra clave válida, pero parece ser una... es un error
-		if !isExpectedKeyword(word) && !isTokenized {
-			// Solo marcar error si no es un número
-			if !regexp.MustCompile(`^\d+$`).MatchString(word) {
-				errors = append(errors, "Posible error léxico: '"+word+"' no es una palabra clave válida")
+		if !esPalabraClave(palabra) && !esTokenizado {
+			if !regexp.MustCompile(`^\d+$`).MatchString(palabra) {
+				errores = append(errores, "Posible error léxico: '"+palabra+"' no es una palabra clave válida ni identificador reconocido")
 			}
 		}
 	}
 
-	return tokens, errors
+	return tokens, errores
 }
 
 // Clasificación para la tabla
-func ClassifyToken(t Token) string {
-	switch t.Type {
-	case "keyword":
-		if isReservedWord(t.Value) {
-			return "PR"
-		}
-		return "Otro"
-	case "identifier":
-		if isReservedWord(t.Value) {
-			return "PR"
-		}
-		return "ID"
-	case "number":
-		return "Numeros"
-	case "symbol":
-		return "Simbolos"
+func ClasificarToken(t Token) string {
+	switch t.Tipo {
+	case "palabra_clave":
+		return "Palabra Clave"
+	case "identificador":
+		return "Identificador"
+	case "numero":
+		return "Número"
+	case "cadena":
+		return "Cadena"
+	case "operador":
+		return "Operador"
+	case "simbolo":
+		return "Símbolo"
+	case "comentario":
+		return "Comentario"
 	default:
 		return "Error"
 	}
 }
 
-// Nueva función para el resumen léxico
-func LexicalSummary(code string) map[string]interface{} {
-	tokens, errors := LexicalAnalysis(code)
+func ResumenLexico(codigo string) map[string]interface{} {
+	tokens, errores := AnalisisLexico(codigo)
 
-	// Inicializar estructura para la tabla
-	table := []map[string]interface{}{}
-	counts := map[string]int{"PR": 0, "ID": 0, "Numeros": 0, "Simbolos": 0, "Error": 0}
+	tabla := []map[string]interface{}{}
+	conteos := map[string]int{"Palabra Clave": 0, "Identificador": 0, "Número": 0, "Cadena": 0, "Operador": 0, "Símbolo": 0, "Comentario": 0, "Error": 0}
 
 	for _, t := range tokens {
-		cat := ClassifyToken(t)
-		if cat == "Otro" {
-			continue
+		cat := ClasificarToken(t)
+		fila := map[string]interface{}{
+			"valor":   t.Valor,
+			"tipo":    cat,
+			"esError": cat == "Error",
 		}
-		row := map[string]interface{}{
-			"value":    t.Value,
-			"PR":       cat == "PR",
-			"ID":       cat == "ID",
-			"Numeros":  cat == "Numeros",
-			"Simbolos": cat == "Simbolos",
-			"Error":    cat == "Error",
-		}
-		table = append(table, row)
+		tabla = append(tabla, fila)
 		if cat != "Error" {
-			counts[cat]++
+			conteos[cat]++
 		}
 	}
-	// Contar errores léxicos
-	counts["Error"] += len(errors)
+	conteos["Error"] += len(errores)
 
 	return map[string]interface{}{
-		"rows":           table,
-		"totals":         counts,
-		"lexical_errors": errors,
+		"filas":           tabla,
+		"totales":         conteos,
+		"errores_lexicos": errores,
 	}
 }
